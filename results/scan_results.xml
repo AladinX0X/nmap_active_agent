@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE nmaprun>
+
+<?xml-stylesheet href="file:///C:/Program Files (x86)/Nmap/nmap.xsl" type="text/xsl"?>
+
+<!-- Nmap 7.95 scan initiated Wed Oct 16 10:20:43 2024 as: nmap -oX - -p 102 -&#45;script s7-info 192.168.0.1 -->
+
+<nmaprun scanner="nmap" args="nmap -oX - -p 102 -&#45;script s7-info 192.168.0.1" start="1723796443" startstr="Wed Oct 16 10:20:43 2024" version="7.95" xmloutputversion="1.05">
+
+<scaninfo type="syn" protocol="tcp" numservices="1" services="102"/>
+
+<verbose level="0"/>
+
+<debugging level="0"/>
+
+<hosthint><status state="up" reason="arp-response" reason_ttl="0"/>
+
+<address addr="192.168.0.1" addrtype="ipv4"/>
+
+<address addr="28:63:36:AD:78:FC" addrtype="mac" vendor="Siemens AG"/>
+
+<hostnames>
+
+</hostnames>
+
+</hosthint>
+
+<host starttime="1723796457" endtime="1723796457"><status state="up" reason="arp-response" reason_ttl="0"/>
+
+<address addr="192.168.0.1" addrtype="ipv4"/>
+
+<address addr="28:63:36:AD:78:FC" addrtype="mac" vendor="Siemens AG"/>
+
+<hostnames>
+
+</hostnames>
+
+<ports><port protocol="tcp" portid="102"><state state="open" reason="syn-ack" reason_ttl="64"/><service name="iso-tsap" product="Siemens S7 PLC" devicetype="specialized" method="probed" conf="10"/><script id="s7-info" output="&#xa;  Module: 6ES7 513-1FL01-0AB0 &#xa;  Basic Hardware: 6ES7 513-1FL01-0AB0 &#xa;  Version: 2.0.1&#xa;  System Name: S71500/ET200MP-Station_1&#xa;  Module Type: PLC_1&#xa;  Serial Number: S C-HDN216732016&#xa;  Plant Identification:                                 &#xa;  Copyright: Original Siemens Equipment"><elem key="Module">6ES7 513-1FL01-0AB0 </elem>
+
+<elem key="Basic Hardware">6ES7 513-1FL01-0AB0 </elem>
+
+<elem key="Version">2.0.1</elem>
+
+<elem key="System Name">S71500/ET200MP-Station_1</elem>
+
+<elem key="Module Type">PLC_1</elem>
+
+<elem key="Serial Number">S C-HDN216732016</elem>
+
+<elem key="Plant Identification">                                </elem>
+
+<elem key="Copyright">Original Siemens Equipment</elem>
+
+</script></port>
+
+</ports>
+
+<times srtt="1000" rttvar="3750" to="100000"/>
+
+</host>
+
+<runstats><finished time="1723796457" timestr="Wed Oct 16 10:20:43 2024" summary="Nmap done at Wed Oct 16 10:20:43 2024; 1 IP address (1 host up) scanned in 13.98 seconds" elapsed="13.98" exit="success"/><hosts up="1" down="0" total="1"/>
+
+</runstats>
+
+</nmaprun>

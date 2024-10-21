@@ -1,0 +1,24 @@
+[
+    {
+        "ip_address": "192.168.0.1",
+        "mac_address": "28:63:36:AD:78:FC",
+        "vendor": "Siemens AG",
+        "Module": "6ES7 513-1FL01-0AB0 ",
+        "Basic Hardware": "6ES7 513-1FL01-0AB0 ",
+        "Version": "2.0.1",
+        "System Name": "S71500/ET200MP-Station_1",
+        "Module Type": "PLC_1",
+        "Serial Number": "S C-HDN216732016",
+        "Plant Identification": "                                ",
+        "Copyright": "Original Siemens Equipment",
+        "hostnames": [],
+        "ports": [
+            {
+                "port_id": "102",
+                "protocol": "tcp",
+                "state": "open",
+                "service": "iso-tsap"
+            }
+        ]
+    }
+]
