@@ -2,141 +2,202 @@ import subprocess
 import xml.etree.ElementTree as ET
 import json
 import os
+import logging
 from datetime import datetime
+from typing import List, Dict, Any, Optional
 
+# Configure logging using a single logger
+logger = logging.getLogger("NmapScanner")
+logger.setLevel(logging.DEBUG)
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+logger.addHandler(handler)
 
-class NmapScanner:
-    def run_nmap_script(self, ip_address, port, script_name, xml_output_file):
-        script_path = f'../scripts/{script_name}'
-        
-        if not os.path.exists(script_path):
-            print(f"Error: Nmap script '{script_name}' not found in the 'scripts/' directory.")
-            return
-        
-        # Execute the Nmap command using the script path
-        command = f'nmap --script {script_path} -p {port} {ip_address} -oX {xml_output_file}'
-        print(f"Running command: {command}")
-        
-        result = subprocess.run(command, shell=True, capture_output=True, text=True)
+def run_nmap_script(ip_address: str, port: int, script_name: str, xml_output_file: str) -> Optional[str]:
+    """
+    Executes the Nmap script against the specified IP address and port.
 
-        if result.returncode != 0:
-            print(f"Error: Nmap command failed with exit code {result.returncode}")
-            print(result.stderr)
-        else:
-            print(f"Nmap scan completed. Output saved to {xml_output_file}")
+    Args:
+        ip_address (str): Target IP address.
+        port (int): Target port.
+        script_name (str): Name of the Nmap script.
+        xml_output_file (str): Path to the output XML file.
 
-    def parse_nmap_xml_file(self, xml_file):
-        if not os.path.exists(xml_file) or os.path.getsize(xml_file) == 0:
-            print(f"Error: XML output file '{xml_file}' does not exist or is empty.")
+    Returns:
+        Optional[str]: Path to the XML output file if successful, None otherwise.
+    """
+    script_path = f'../scripts/{script_name}'
+
+    if not os.path.exists(script_path):
+        logger.error(f"Nmap script '{script_name}' not found in the 'scripts/' directory.")
+        return None
+
+    command = ['nmap', '--script', script_path, '-p', str(port), ip_address, '-oX', xml_output_file]
+    logger.info(f"Running command: {' '.join(command)}")
+
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, check=True)
+        logger.info(f"Nmap scan completed. Output saved to {xml_output_file}")
+        return xml_output_file
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Nmap command failed: {e.stderr}")
+        return None
+
+def parse_nmap_xml_file(xml_file: str) -> List[Dict[str, Any]]:
+    """
+    Parses the Nmap XML file to extract scan results.
+
+    Args:
+        xml_file (str): Path to the XML file.
+
+    Returns:
+        List[Dict[str, Any]]: Parsed results from the XML file.
+    """
+    if not os.path.exists(xml_file) or os.path.getsize(xml_file) == 0:
+        logger.error(f"XML output file '{xml_file}' does not exist or is empty.")
+        return []
+
+    try:
+        tree = ET.parse(xml_file)
+        root = tree.getroot()
+        hosts = root.findall('host')
+        if not hosts:
+            logger.info(f"No results found in the XML file '{xml_file}'. The target may not have the required services.")
             return []
 
-        try:
-            tree = ET.parse(xml_file)
-            root = tree.getroot()
-            hosts = root.findall('host')
-            if not hosts:
-                print(f"No results found in the XML file '{xml_file}'. The target may not have the required services.")
-                return []
-            
-            return [self._parse_host(host) for host in hosts]
-    
-        except ET.ParseError as e:
-            print(f"Error: Failed to parse XML file '{xml_file}'. The file may be corrupted.")
-            print(e)
-            return []
+        return [parse_host(host) for host in hosts]
+    except ET.ParseError as e:
+        logger.error(f"Failed to parse XML file '{xml_file}': {e}")
+        return []
 
-    def save_results_to_json(self, results, filename):
-        with open(filename, 'w') as json_file:
-            json.dump(results, json_file, indent=4)
+def save_results_to_json(results: List[Dict[str, Any]], filename: str) -> None:
+    """
+    Saves scan results to a JSON file.
 
-    def _parse_host(self, host):
-        result = {
-            'ip_address': self._get_xml_text(host, "address[@addrtype='ipv4']", 'addr'),
-            'mac_address': self._get_xml_text(host, "address[@addrtype='mac']", 'addr', default='N/A'),
-            'vendor': self._get_xml_text(host, "address[@addrtype='mac']", 'vendor', default='N/A'),
-            'hostnames': self._parse_hostnames(host),
-            'ports': self._parse_ports(host),
-        }
-        result.update(self._extract_additional_info(host))
-        return result
+    Args:
+        results (List[Dict[str, Any]]): Parsed results to save.
+        filename (str): Path to the JSON output file.
+    """
+    with open(filename, 'w') as json_file:
+        json.dump(results, json_file, indent=4)
+    logger.info(f"Results saved to {filename}")
 
-    def _get_xml_text(self, element, xpath, attribute, default=None):
-        node = element.find(xpath)
-        return node.get(attribute) if node is not None else default
+def parse_host(host: ET.Element) -> Dict[str, Any]:
+    """
+    Parses a host element from the Nmap XML output.
 
-    def _parse_hostnames(self, host):
-        hostnames = host.find('hostnames')
-        return [hostname.get('name')] if hostnames is not None else []
+    Args:
+        host (ET.Element): XML element representing a host.
 
-    def _parse_ports(self, host):
-        ports = host.find('ports')
-        return [self._parse_port(port) for port in ports.findall('port')] if ports is not None else []
+    Returns:
+        Dict[str, Any]: Parsed host information.
+    """
+    result = {
+        'ip_address': get_xml_text(host, "address[@addrtype='ipv4']", 'addr'),
+        'mac_address': get_xml_text(host, "address[@addrtype='mac']", 'addr', 'N/A'),
+        'vendor': get_xml_text(host, "address[@addrtype='mac']", 'vendor', 'N/A'),
+        'hostnames': parse_hostnames(host),
+        'ports': parse_ports(host),
+    }
 
-    def _parse_port(self, port):
-        return {
-            'port_id': port.get('portid'),
-            'protocol': port.get('protocol'),
-            'state': self._get_xml_text(port, 'state', 'state', default='unknown'),
-            'service': self._get_xml_text(port, 'service', 'name', default='N/A')
-        }
+    # Extract additional information based on NSE script output or XML structure
+    result.update(extract_additional_info(host))
 
-    def _extract_additional_info(self, host):
-        additional_info = {}
-        for elem in host.iter('elem'):
-            key = elem.get('key', 'unknown_key')
-            value = elem.text or 'N/A'
-            additional_info[key] = value
-        return additional_info
+    return result
 
+def get_xml_text(element: ET.Element, xpath: str, attribute: str, default: Optional[str] = None) -> Optional[str]:
+    """
+    Retrieves text from an XML element.
 
-def start_nmap_scan(target_ip, target_port, script_name):
-    nmap_scan = NmapScanner()
+    Args:
+        element (ET.Element): The XML element.
+        xpath (str): XPath to the desired element.
+        attribute (str): Attribute to extract.
+        default (Optional[str]): Default value if not found.
 
-    results_dir = 'results'
-    os.makedirs(results_dir, exist_ok=True)
+    Returns:
+        Optional[str]: The extracted text or the default value.
+    """
+    node = element.find(xpath)
+    return node.get(attribute) if node is not None else default
 
-    xml_output_file = f'{results_dir}/scan_results_{script_name}.xml'
-    current_time = datetime.now().isoformat()
-    json_output_file = f'{results_dir}/scan_results_{current_time}.json'
+def parse_hostnames(host: ET.Element) -> List[str]:
+    """
+    Extracts hostnames from a host element.
 
-    # Start the Nmap scan
-    start_time = datetime.now().isoformat()
-    print(f"Starting Nmap at {start_time}")
-    print("-" * 30)
+    Args:
+        host (ET.Element): The host XML element.
 
-    # Run the scan with the specified IP, port, and script name
-    nmap_scan.run_nmap_script(target_ip, target_port, script_name, xml_output_file)
+    Returns:
+        List[str]: List of hostnames.
+    """
+    hostnames = host.find('hostnames')
+    return [hostname.get('name') for hostname in hostnames.findall('hostname')] if hostnames else []
 
-    if os.path.exists(xml_output_file):
-        print(f"XML output file '{xml_output_file}' generated.")
-    else:
-        print(f"Failed to generate XML output file '{xml_output_file}'. Exiting.")
-        return
+def parse_ports(host: ET.Element) -> List[Dict[str, Any]]:
+    """
+    Extracts port information from a host element.
 
-    scan_results = nmap_scan.parse_nmap_xml_file(xml_output_file)
+    Args:
+        host (ET.Element): The host XML element.
 
-    if scan_results:
-        _print_scan_results(scan_results)
-        nmap_scan.save_results_to_json(scan_results, json_output_file)
-        print(f"Results saved to {json_output_file}")
-    else:
-        print(f"No results found in the XML file '{xml_output_file}'.")
+    Returns:
+        List[Dict[str, Any]]: List of port details.
+    """
+    ports = host.find('ports')
+    return [parse_port(port) for port in ports.findall('port')] if ports else []
 
-    end_time = datetime.now().isoformat()
-    duration = (datetime.fromisoformat(end_time) - datetime.fromisoformat(start_time)).seconds
-    print(f"Nmap scan done: IP address scanned in {duration} seconds")
+def parse_port(port: ET.Element) -> Dict[str, Any]:
+    """
+    Extracts information from a port element.
 
+    Args:
+        port (ET.Element): The port XML element.
 
-def _print_scan_results(scan_results):
-    for result in scan_results:
-        print(f"Nmap scan report for {result['ip_address']}")
-        print("-" * 20)
-        for key, value in result.items():
-            if key == 'ports':
-                for port in value:
-                    print(f"Port: {port['port_id']}, Protocol: {port['protocol']}, State: {port['state']}, Service: {port['service']}")
-            elif isinstance(value, list):
-                print(f"{key.capitalize()}: {', '.join(value)}")
-            else:
-                print(f"{key.capitalize()}: {value}")
-        print("-" * 20)
+    Returns:
+        Dict[str, Any]: Parsed port information.
+    """
+    return {
+        'port_id': port.get('portid'),
+        'protocol': port.get('protocol'),
+        'state': get_xml_text(port, 'state', 'state', 'unknown'),
+        'service': get_xml_text(port, 'service', 'name', 'N/A')
+    }
+
+def extract_additional_info(host: ET.Element) -> Dict[str, Any]:
+    """
+    Extracts additional information such as hardware details from a host element.
+
+    Args:
+        host (ET.Element): The host XML element.
+
+    Returns:
+        Dict[str, Any]: Additional details extracted from the host.
+    """
+    additional_info = {
+        "Module": extract_nse_field(host, "Module"),
+        "Basic Hardware": extract_nse_field(host, "Basic Hardware"),
+        "Version": extract_nse_field(host, "Version"),
+        "System Name": extract_nse_field(host, "System Name"),
+        "Module Type": extract_nse_field(host, "Module Type"),
+        "Serial Number": extract_nse_field(host, "Serial Number"),
+        "Plant Identification": extract_nse_field(host, "Plant Identification"),
+        "Copyright": extract_nse_field(host, "Copyright")
+    }
+    return additional_info
+
+def extract_nse_field(host: ET.Element, field_name: str) -> str:
+    """
+    Extracts a specific field from the host NSE script output.
+
+    Args:
+        host (ET.Element): The host XML element.
+        field_name (str): The name of the field to extract.
+
+    Returns:
+        str: The extracted value or 'N/A' if not found.
+    """
+    for elem in host.findall(".//elem[@key]"):
+        if elem.get('key') == field_name:
+            return elem.text or 'N/A'
+    return 'N/A'
