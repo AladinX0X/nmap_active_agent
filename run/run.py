@@ -1,6 +1,7 @@
 import time
 import json
 import logging
+from datetime import datetime
 from nmap_agent import run_nmap_script, parse_nmap_xml_file, save_results_to_json
 
 # Configure logging
