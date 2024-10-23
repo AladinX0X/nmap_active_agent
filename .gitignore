@@ -2,10 +2,9 @@
 __pycache__/
 *.pyc
 
-# Ignore result files
-results/*.xml
-results/*.json
-
 # Ignore environment files
 .env
 .vscode/
+
+# Ignore XML files in results
+results/*.xml
