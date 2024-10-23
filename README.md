@@ -18,7 +18,7 @@ Nmap Active Scan Agent
 |    |__ ...
 |__ results/
 |    |__ parsed_scan_results_<timestamp>.json
-|    |__ scan_results_<script_name>.xml
+|    |__ scan_results_<ip>_<script_name>.xml
 |__ nmap_agent/
 |    |__ nmap_agent.py
 |    |__ run.py
@@ -50,10 +50,19 @@ The `config.json` file contains the parameters for the scan:
 
 ```json
 {
-    "target_ip": "192.168.0.1",
-    "target_port": 102,
-    "script_name": "pn-discovery",
-    "wait_time_minutes": 5
+    "wait_time_minutes": 5,
+    "scans": [
+        {
+            "target_ip": ["192.168.0.1"],
+            "target_port": 102,
+            "script_name": ["pn-discovery"]
+        },
+        {
+            "target_ip": ["192.168.0.2"],
+            "target_port": 101,
+            "script_name": ["s7-info"]
+        }
+    ]
 }
 ```
 
@@ -75,7 +84,7 @@ You can easily modify this file to change the target IP, port, Nmap script, and 
    The scan will run continuously based on the interval specified in `config.json`.
 
 3. **View Results**:
-    - The XML results are stored in the `results/` directory with filenames like `scan_results_<script_name>.xml`.
+    - The XML results are stored in the `results/` directory with filenames like `scan_results_<ip>_<script_name>.xml`.
     - The parsed JSON results are also saved in the `results/` directory with filenames based on the timestamp of the scan.
     - Results will also be displayed in the terminal for each scan.
     - Logs for each scan (including any errors) are also displayed in the terminal.
@@ -95,36 +104,43 @@ You can easily modify this file to change the target IP, port, Nmap script, and 
 3. **Parsing**: The `parse_nmap_xml_file` function parses the XML file to extract details about hosts, ports, and other network information.
 4. **Saving Results**: The parsed results are saved in JSON format using the `save_results_to_json` function.
 5. **Continuous Scanning**: The `start_scan_loop` function runs in a loop, scanning at intervals based on the configuration file.
+6. **Cleanup**: The `cleanup_old_xml_files` function ensures only the latest XML files are retained, automatically deleting older files after a specified number of scans.
 
 ## Example JSON Output
 
 The scan results are saved in JSON format with detailed information extracted from the Nmap scan:
 
 ```json
-[
-    {
-        "ip_address": "192.168.0.1",
-        "mac_address": "28:63:36:AD:78:FC",
-        "vendor": "Siemens AG",
-        "Module": "6ES7 513-1FL01-0AB0 ",
-        "Basic Hardware": "6ES7 513-1FL01-0AB0 ",
-        "Version": "2.0.1",
-        "System Name": "S71500/ET200MP-Station_1",
-        "Module Type": "PLC_1",
-        "Serial Number": "S C-HDN216732016",
-        "Plant Identification": "                                ",
-        "Copyright": "Original Siemens Equipment",
-        "hostnames": [],
-        "ports": [
-            {
-                "port_id": "102",
-                "protocol": "tcp",
-                "state": "open",
-                "service": "iso-tsap"
-            }
-        ]
-    }
-]
+{
+    "wait_time_minutes": 5,
+    "scans": [
+        {
+            "target_ip": "192.168.0.1",
+            "target_port": 102,
+            "script_name": "pn-discovery",
+            "results": [
+                {
+                    "ip_address": "192.168.0.1",
+                    "mac_address": "XX:XX:XX:XX:XX:XX",
+                    "vendor": "Vendor Name",
+                    "Module": "Model XYZ",
+                    "Version": "1.0",
+                    "System Name": "System ABC",
+                    "Serial Number": "123456789",
+                    "hostnames": [],
+                    "ports": [
+                        {
+                            "port_id": "102",
+                            "protocol": "tcp",
+                            "state": "open",
+                            "service": "iso-tsap"
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
 ```
 
 This JSON output provides detailed information about the scanned device, including module type, version, and network service details.
@@ -135,7 +151,7 @@ This JSON output provides detailed information about the scanned device, includi
 
 ## Type Checking
 
-- The codebase now includes type hints, which can be validated using `mypy` for improved type checking and safety:
+- The codebase includes type hints, which can be validated using `mypy` for improved type checking and safety:
 
     ```bash
     mypy nmap_agent/
