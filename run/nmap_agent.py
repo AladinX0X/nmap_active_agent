@@ -1,166 +1,111 @@
-import subprocess
-import xml.etree.ElementTree as ET
+import time
 import json
-import os
-import glob
 import logging
+import os
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from nmap_agent import run_nmap_script, parse_nmap_xml_file, save_results_to_json, cleanup_old_xml_files
 
-# Configure logging using a single logger
+# Configure logging
 logger = logging.getLogger("NmapScanner")
 logger.setLevel(logging.DEBUG)
 handler = logging.StreamHandler()
 handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 logger.addHandler(handler)
 
+# Get the current working directory for relative path handling
 base_dir = os.getcwd()
 
-def run_nmap_script(ip_address: str, port: int, script_name: str, xml_output_file: str) -> Optional[str]:
+def load_config(config_path: str) -> dict:
     """
-    Executes the Nmap script against the specified IP address and port.
+    Loads configuration from a JSON file.
     """
+    with open(config_path, 'r') as config_file:
+        return json.load(config_file)
+
+def ensure_results_directory() -> str:
+    """
+    Ensures that the results directory exists.
+    """
+    results_dir = os.path.join(base_dir, 'results')
+    os.makedirs(results_dir, exist_ok=True)
+    return results_dir
+
+def execute_scan(ip: str, target_port: int, script_name: str, results_dir: str) -> dict:
+    """
+    Executes a scan for a given IP, port, and script, and parses the results.
+    """
+    xml_output_file = os.path.join(results_dir, f'{ip}_{script_name}.xml')
+    logger.info(f"Scanning IP: {ip}, Port: {target_port}, Script: {script_name}")
     try:
-        if not ip_address or not script_name:
-            raise ValueError("IP address or script name is not specified.")
-        
-        # Construct the path to the script using os.path.join for better compatibility
-        script_path = os.path.join(base_dir, 'scripts', script_name)
-        if not os.path.exists(script_path):
-            raise FileNotFoundError(f"Nmap script '{script_name}' not found in the 'scripts/' directory at path: {script_path}.")
-        
-        # Construct the output path using os.path.join
-        xml_output_path = os.path.join(base_dir, xml_output_file)
-        command = ['nmap', '--script', script_path, '-p', str(port), ip_address, '-oX', xml_output_path]
-        logger.info(f"Running command: {' '.join(command)}")
-
-        result = subprocess.run(command, capture_output=True, text=True, check=True)
-        logger.info(f"Nmap scan completed. Output saved to {xml_output_path}")
-        return xml_output_path
-
-    except ValueError as ve:
-        logger.error(f"Input error: {ve}")
-    except FileNotFoundError as fe:
-        logger.error(fe)
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Nmap command failed: {e.stderr}")
+        xml_file = run_nmap_script(ip, target_port, script_name, xml_output_file)
+        if xml_file:
+            parsed_results = parse_nmap_xml_file(xml_file)
+            return {
+                "target_ip": ip,
+                "target_port": target_port,
+                "script_name": script_name,
+                "results": parsed_results
+            }
+        else:
+            logger.error(f"Scan failed for IP: {ip}, Script: {script_name}")
     except Exception as e:
-        logger.error(f"Unexpected error during scan: {e}")
+        logger.error(f"Error during scan for IP {ip}, Script {script_name}: {e}")
     return None
 
-def parse_nmap_xml_file(xml_file: str) -> List[Dict[str, Any]]:
+def perform_all_scans(scans: list, results_dir: str) -> list:
     """
-    Parses the Nmap XML file to extract scan results.
+    Iterates over all scans and executes them.
     """
-    try:
-        xml_file_path = os.path.join(base_dir, xml_file)
-        if not os.path.exists(xml_file_path) or os.path.getsize(xml_file_path) == 0:
-            logger.error(f"XML output file '{xml_file_path}' does not exist or is empty.")
-            return []
+    all_results = []
+    successful_scans = 0
+    failed_scans = 0
 
-        tree = ET.parse(xml_file_path)
-        root = tree.getroot()
-        hosts = root.findall('host')
-        if not hosts:
-            logger.info(f"No results found in the XML file '{xml_file_path}'. The target may not have the required services.")
-            return []
+    for scan in scans:
+        ip_list = scan['target_ip']
+        target_port = scan['target_port']
+        script_names = scan['script_name']
 
-        return [parse_host(host) for host in hosts]
-    except ET.ParseError as e:
-        logger.error(f"Failed to parse XML file '{xml_file}': {e}")
-    except Exception as e:
-        logger.error(f"Unexpected error during XML parsing: {e}")
-    return []
+        for ip in ip_list:
+            for script_name in script_names:
+                result = execute_scan(ip, target_port, script_name, results_dir)
+                if result:
+                    all_results.append(result)
+                    successful_scans += 1
+                else:
+                    failed_scans += 1
 
-def save_results_to_json(config: dict, results: List[Dict[str, Any]], filename: str) -> None:
+    logger.info(f"Scan cycle completed: {successful_scans} successful scans, {failed_scans} failed scans.")
+    return all_results
+
+def save_scan_results(config: dict, all_results: list, results_dir: str) -> None:
     """
-    Saves scan results to a JSON file in the specified format.
+    Saves all scan results to a JSON file.
     """
-    output_data = {
-        "wait_time_minutes": config['wait_time_minutes'],
-        "scans": results
-    }
-    json_file_path = os.path.join(base_dir, filename)
-    try:
-        with open(json_file_path, 'w') as json_file:
-            json.dump(output_data, json_file, indent=4)
-        logger.info(f"Results saved to {json_file_path}")
-    except IOError as e:
-        logger.error(f"Failed to write results to {json_file_path}: {e}")
+    current_time = datetime.now().isoformat()
+    json_output_file = os.path.join(results_dir, f'scan_results_{current_time}.json')
+    save_results_to_json(config, all_results, json_output_file)
+    logger.info(f"All scan results saved to {json_output_file}")
 
-def parse_host(host: ET.Element) -> Dict[str, Any]:
+    # Clean up old XML files, keeping only the latest 3
+    cleanup_old_xml_files(results_dir, keep_count=3)
+
+def start_scan_loop(config: dict) -> None:
     """
-    Parses a host element from the Nmap XML output.
+    Manages the scan loop based on the provided configuration.
     """
-    result = {
-        'ip_address': get_xml_text(host, "address[@addrtype='ipv4']", 'addr'),
-        'mac_address': get_xml_text(host, "address[@addrtype='mac']", 'addr', 'N/A'),
-        'vendor': get_xml_text(host, "address[@addrtype='mac']", 'vendor', 'N/A'),
-        'hostnames': parse_hostnames(host),
-        'ports': parse_ports(host),
-    }
+    wait_time_minutes = config['wait_time_minutes']
+    scans = config['scans']
+    results_dir = ensure_results_directory()
 
-    # Extract additional information based on NSE script output or XML structure
-    result.update(extract_additional_info(host))
-    return result
+    while True:
+        logger.info("Starting scans based on configuration.")
+        all_results = perform_all_scans(scans, results_dir)
+        save_scan_results(config, all_results, results_dir)
+        logger.info(f"Waiting for {wait_time_minutes} minutes before the next scan...")
+        time.sleep(wait_time_minutes * 60)
 
-def get_xml_text(element: ET.Element, xpath: str, attribute: str, default: Optional[str] = None) -> Optional[str]:
-    node = element.find(xpath)
-    return node.get(attribute) if node is not None else default
-
-def parse_hostnames(host: ET.Element) -> List[str]:
-    hostnames = host.find('hostnames')
-    return [hostname.get('name') for hostname in hostnames.findall('hostname')] if hostnames else []
-
-def parse_ports(host: ET.Element) -> List[Dict[str, Any]]:
-    ports = host.find('ports')
-    return [parse_port(port) for port in ports.findall('port')] if ports else []
-
-def parse_port(port: ET.Element) -> Dict[str, Any]:
-    return {
-        'port_id': port.get('portid'),
-        'protocol': port.get('protocol'),
-        'state': get_xml_text(port, 'state', 'state', 'unknown'),
-        'service': get_xml_text(port, 'service', 'name', 'N/A')
-    }
-
-def extract_additional_info(host: ET.Element) -> Dict[str, Any]:
-    additional_info = {
-        "Module": extract_nse_field(host, "Module"),
-        "Basic Hardware": extract_nse_field(host, "Basic Hardware"),
-        "Version": extract_nse_field(host, "Version"),
-        "System Name": extract_nse_field(host, "System Name"),
-        "Module Type": extract_nse_field(host, "Module Type"),
-        "Serial Number": extract_nse_field(host, "Serial Number"),
-        "Plant Identification": extract_nse_field(host, "Plant Identification"),
-        "Copyright": extract_nse_field(host, "Copyright")
-    }
-    return additional_info
-
-def extract_nse_field(host: ET.Element, field_name: str) -> str:
-    for elem in host.findall(".//elem[@key]"):
-        if elem.get('key') == field_name:
-            return elem.text or 'N/A'
-    return 'N/A'
-
-def cleanup_old_xml_files(results_dir: str, keep_count: int = 3) -> None:
-    """
-    Deletes XML files from the results directory, keeping only the latest 'keep_count' files.
-    """
-    # Get a list of all XML files in the results directory sorted by modification time (oldest first)
-    xml_files = sorted(
-        glob.glob(os.path.join(results_dir, "*.xml")),
-        key=os.path.getmtime
-    )
-
-    # Calculate the number of files to delete
-    files_to_delete = len(xml_files) - keep_count
-
-    # If there are more XML files than 'keep_count', delete the oldest ones
-    if files_to_delete > 0:
-        for xml_file in xml_files[:files_to_delete]:
-            try:
-                os.remove(xml_file)
-                logger.info(f"Deleted old XML file: {xml_file}")
-            except Exception as e:
-                logger.error(f"Failed to delete XML file {xml_file}: {e}")
+if __name__ == "__main__":
+    # Load configuration from config.json
+    config_file_path = os.path.join(base_dir, 'config.json')
+    config = load_config(config_file_path)
+    start_scan_loop(config)
